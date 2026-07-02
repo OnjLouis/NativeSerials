@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Native Serials Manual</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; line-height: 1.5; margin: 2rem; max-width: 62rem; }
+    h1, h2, h3 { line-height: 1.2; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #777; padding: .4rem; text-align: left; vertical-align: top; }
+    th { background: #eee; }
+    code { font-family: Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <h1>Native Serials Manual</h1>
+  <p>Version 1.0</p>
+  <p>Project page: <a href="https://github.com/OnjLouis/NativeSerials">https://github.com/OnjLouis/NativeSerials</a></p>
+
+  <h2 id="contents">Contents</h2>
+  <ul>
+    <li><a href="#purpose">Purpose</a></li>
+    <li><a href="#important-limitations">Important Limitations</a></li>
+    <li><a href="#privacy">Privacy</a></li>
+    <li><a href="#main-window">Main Window</a></li>
+    <li><a href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+    <li><a href="#exporting">Exporting and Copying</a></li>
+    <li><a href="#updates-and-support">Updates and Support</a></li>
+    <li><a href="#files">Files</a></li>
+    <li><a href="#version-history">Version History</a></li>
+    <li><a href="#contact-and-donate">Contact and Donate</a></li>
+  </ul>
+
+  <h2 id="purpose">Purpose</h2>
+  <p>Native Serials is a local, read-only Native Instruments inventory reporter. It scans Native Access, RAS3 activation token, installed product, and Service Center metadata already present on the computer, then shows an accessible list of products and recovered serial numbers.</p>
+  <p>The app is designed for screen reader users. The product table is a standard control, serials are hidden by default, and common actions are available from menus and keyboard shortcuts.</p>
+
+  <h2 id="important-limitations">Important Limitations</h2>
+  <p>Native Serials is neither endorsed nor supported by Native Instruments. Native Instruments, Native Access, Kontakt, Komplete Kontrol, Maschine, and related product names belong to Native Instruments and their respective owners.</p>
+  <p>Native Serials may not find every product serial you own. It can only report information available in local files that it understands. Some products may use metadata formats not currently handled, may be registered but not installed, may be attached to a bundle rather than an individual product row, or may require online account information that this app does not access.</p>
+  <p>If a product appears without a serial, or a serial appears only after Native Access has been run, that usually means the local metadata has not provided enough information yet. This does not mean the product is unlicensed.</p>
+
+  <h2 id="privacy">Privacy</h2>
+  <p>Native Serials works locally. It does not send product names, serials, paths, or token contents to any server.</p>
+  <p>RAS3 JWT files can contain serial claims. Native Serials decodes those files locally and masks serials in the main table until <strong>Reveal serials</strong> is checked. Use export with care, because the HTML report can include revealed serial numbers when that option is enabled.</p>
+
+  <h2 id="main-window">Main Window</h2>
+  <p>The main window contains a search box, a Rescan button, two privacy/filter checkboxes, a Save HTML Report button, and a product table.</p>
+  <table>
+    <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Search</td><td>Filters by product name, company, type, serial, path, UPID, or SNPID.</td></tr>
+      <tr><td>Rescan</td><td>Runs the local scan again and refreshes the table.</td></tr>
+      <tr><td>Reveal serials</td><td>Shows full serial numbers in the table, copied rows, and exported HTML.</td></tr>
+      <tr><td>Serials only</td><td>Shows only rows where a serial number was recovered.</td></tr>
+      <tr><td>Save HTML Report</td><td>Writes the current filtered table to an HTML report.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="keyboard-shortcuts">Keyboard Shortcuts</h2>
+  <table>
+    <thead><tr><th>Action</th><th>Windows</th><th>Mac</th></tr></thead>
+    <tbody>
+      <tr><td>Open this manual</td><td><code>F1</code></td><td><code>F1</code></td></tr>
+      <tr><td>Check for updates</td><td><code>Shift+F1</code></td><td><code>Shift+F1</code></td></tr>
+      <tr><td>Open project page</td><td><code>Ctrl+F1</code></td><td><code>Command+F1</code></td></tr>
+      <tr><td>Search products</td><td><code>Ctrl+F</code></td><td>Use the Search field</td></tr>
+      <tr><td>Copy selected rows</td><td><code>Ctrl+C</code></td><td><code>Command+C</code></td></tr>
+      <tr><td>Save HTML report</td><td><code>Ctrl+S</code> or <code>Alt+S</code></td><td><code>Command+S</code></td></tr>
+      <tr><td>Rescan</td><td><code>F5</code> or <code>Alt+R</code></td><td><code>Command+R</code></td></tr>
+      <tr><td>Reveal serials</td><td><code>Alt+V</code></td><td>Reveal serials checkbox</td></tr>
+      <tr><td>Serials only</td><td><code>Alt+O</code></td><td>Serials only checkbox</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="exporting">Exporting and Copying</h2>
+  <p>Use <strong>File, Copy Selected Row</strong> or the copy shortcut to copy selected products as tab-separated text. Multiple selected rows are copied together.</p>
+  <p>Use <strong>File, Save HTML Report</strong> to create a readable HTML report from the current filtered table. If <strong>Reveal serials</strong> is off, serials are masked in the report. If <strong>Reveal serials</strong> is on, full serials are included.</p>
+
+  <h2 id="updates-and-support">Updates and Support</h2>
+  <p>Use <strong>Help, Check for Updates</strong> or <code>Shift+F1</code> to check GitHub releases. Use <strong>Help, Version History</strong> to review release notes. Use <strong>Help, Project Page on GitHub</strong> or <code>Ctrl+F1</code> on Windows and <code>Command+F1</code> on Mac to open the project page.</p>
+  <p>Use <strong>Help, Contact</strong> for feedback and <strong>Help, Donate</strong> if you want to support continued development.</p>
+
+  <h2 id="files">Files</h2>
+  <table>
+    <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>NativeSerials.exe</code></td><td>The Windows app.</td></tr>
+      <tr><td><code>Native Serials.app</code></td><td>The Mac app bundle.</td></tr>
+      <tr><td><code>Manual.html</code></td><td>This manual. Press <code>F1</code> in Native Serials to open it.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="version-history">Version History</h2>
+  <h3>1.0</h3>
+  <ul>
+    <li>Initial public release.</li>
+    <li>Scans installed product JSON, Service Center XML metadata, and Native Access RAS3 tokens.</li>
+    <li>Masks serial numbers by default, with explicit reveal and export behavior.</li>
+    <li>Adds accessible menus, diagnostics, manual, update checking, project page, contact, and donation links.</li>
+  </ul>
+
+  <h2 id="contact-and-donate">Contact and Donate</h2>
+  <p>Questions and feedback can be sent through <strong>Help, Contact</strong> in the app or <a href="https://onj.me/contact">https://onj.me/contact</a>.</p>
+  <p>Native Serials is free software. If you want to support Andre's work, use <strong>Help, Donate</strong> in the app or visit <a href="https://onj.me/donate">https://onj.me/donate</a>.</p>
+</body>
+</html>
