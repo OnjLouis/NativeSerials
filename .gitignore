@@ -8,3 +8,11 @@ Windows/portable/
 .DS_Store
 bin/
 obj/
+SmokeTest.ps1
+Test-ReleasePrivacy.ps1
+HANDOVER.md
+GITHUB-RELEASE-RULES.md
+ClipmanShared.md
+CLIPMAN_AGENT_SYNC.md
+CLIPMAN_SHARED_CONTRACT.md
+CommunitySearch.ps1
