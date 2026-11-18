@@ -50,7 +50,12 @@ final class NativeScanner {
             }
         }
 
-        let products = dedupeByName(Array(productsByKey.values).filter { $0.isOwnedCandidate }).sorted {
+        var candidates = enrichCompanies(Array(productsByKey.values).filter { $0.isOwnedCandidate }, metadata: service)
+        if candidates.contains(where: { $0.company.isEmpty }) {
+            let roots = [URL(fileURLWithPath: "/Library/Audio/Plug-Ins/Components"), fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Audio/Plug-Ins/Components")]
+            candidates = enrichCompanies(candidates, metadata: service + audioUnitPublisherMetadata(in: roots))
+        }
+        let products = dedupeByName(candidates).sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
         let summary = ScanSummary(
@@ -131,7 +136,8 @@ final class NativeScanner {
                 serial: serial,
                 hasRas3Token: false,
                 isOwnedCandidate: false,
-                sources: [url.path]
+                sources: [url.path],
+                registryName: firstTag("RegKey", in: text)
             )]
         }
     }
@@ -153,7 +159,8 @@ final class NativeScanner {
             serial: firstTag("Serial", in: text),
             hasRas3Token: false,
             isOwnedCandidate: false,
-            sources: [url.path]
+            sources: [url.path],
+            registryName: firstTag("RegKey", in: text)
         )
     }
 
@@ -205,6 +212,64 @@ final class NativeScanner {
         existing.hasRas3Token = existing.hasRas3Token || other.hasRas3Token
         existing.isOwnedCandidate = existing.isOwnedCandidate || other.isOwnedCandidate
         existing.sources.append(contentsOf: other.sources.filter { !existing.sources.contains($0) })
+    }
+
+    func enrichCompanies(_ candidates: [NativeProduct], metadata: [NativeProduct]) -> [NativeProduct] {
+        var byName: [String: Set<String>] = [:]
+        var registeredPrefixes: [String: Set<String>] = [:]
+        for item in metadata where !item.company.isEmpty {
+            for alias in [item.name, item.registryName] where !alias.isEmpty { byName[normalizedName(alias), default: []].insert(item.company) }
+            if let separator = item.registryName.firstIndex(of: "-") {
+                let prefix = String(item.registryName[..<separator])
+                if normalizedName(prefix) == normalizedName(item.company) {
+                    registeredPrefixes[normalizedName(prefix), default: []].insert(item.company)
+                }
+            }
+        }
+        return candidates.map { candidate in
+            var row = candidate
+            if row.company.isEmpty, let owners = byName[normalizedName(row.name)], owners.count == 1 { row.company = owners.first! }
+            if row.company.isEmpty {
+                for alias in [row.name, row.registryName] {
+                    guard let separator = alias.firstIndex(of: "-"),
+                          let owners = registeredPrefixes[normalizedName(String(alias[..<separator]))], owners.count == 1 else { continue }
+                    row.company = owners.first!
+                    break
+                }
+            }
+            // A legacy Player registration can outlive its bundle. Exact catalogue
+            // identity is corroborated by locally declared manufacturer metadata.
+            // https://www.kv331audio.com/synthmasterplayer.aspx
+            if row.company.isEmpty && normalizedName(row.name) == "synthmaster player",
+               let manufacturer = metadata.first(where: { normalizedName($0.company) == "kv331 audio" }) {
+                row.company = manufacturer.company
+            }
+            return row
+        }
+    }
+
+    func audioUnitPublisherMetadata(in roots: [URL]) -> [NativeProduct] {
+        var result: [NativeProduct] = []
+        for root in roots {
+            let bundles = (try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+            for bundle in bundles.filter({ $0.pathExtension.lowercased() == "component" }).prefix(2048) {
+                let plist = bundle.appendingPathComponent("Contents/Info.plist")
+                guard let size = try? plist.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 1_048_576,
+                      let data = try? Data(contentsOf: plist),
+                      let info = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
+                      let components = info["AudioComponents"] as? [[String: Any]] else { continue }
+                for component in components {
+                    guard let declaration = component["name"] as? String, let separator = declaration.firstIndex(of: ":") else { continue }
+                    let company = String(declaration[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let name = String(declaration[declaration.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !company.isEmpty && !name.isEmpty else { continue }
+                    result.append(NativeProduct(key: "bundle:\(bundle.path):\(name)", name: name, upid: "", snpid: "", company: company,
+                        productType: "", contentVersion: "", contentDir: "", installDir: "", serial: "", hasRas3Token: false,
+                        isOwnedCandidate: false, sources: [], registryName: company + "-" + name))
+                }
+            }
+        }
+        return result
     }
 
     private func dedupeByName(_ products: [NativeProduct]) -> [NativeProduct] {

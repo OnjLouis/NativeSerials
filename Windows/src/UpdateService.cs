@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -84,13 +85,11 @@ namespace NativeSerials
                 var releases = FetchReleases();
                 var release = LatestVersionedRelease(releases) ?? FetchLatestRelease();
                 var version = release == null ? currentVersion : (release.TagName ?? currentVersion).Trim().TrimStart('v', 'V');
-                var releaseUrl = release == null || string.IsNullOrWhiteSpace(release.HtmlUrl) ? ProjectUrl + "/releases" : release.HtmlUrl;
                 var notesText = FormatReleaseNotesForDialog(release == null ? string.Empty : release.Body, "No release notes were provided for this update.");
-                using (var dialog = new TextViewerForm("Version history - " + version, "Latest release: " + version + Environment.NewLine + Environment.NewLine + notesText, "Version history " + version, "Native Serials release notes.", true))
+                using (var dialog = new TextViewerForm("Version history - " + version, "Latest release: " + version + Environment.NewLine + Environment.NewLine + notesText, "Version history " + version, "Review the changes published for this version. Select text to copy an excerpt, or use Copy All for the complete notes.", true))
                 {
                     dialog.ShowDialog(owner);
                 }
-                OpenUrl(releaseUrl);
             }
             catch (Exception ex)
             {
@@ -115,62 +114,35 @@ namespace NativeSerials
 
         public static bool TryApplyUpdate(string[] args)
         {
-            if (args == null || !args.Contains("--apply-update")) return false;
-            try
-            {
-                var zipUrl = ArgValue(args, "--update-url");
-                var targetDir = ArgValue(args, "--update-target");
-                var exePath = ArgValue(args, "--update-exe");
-                var waitPidText = ArgValue(args, "--update-wait-pid");
-                int waitPid;
-                if (int.TryParse(waitPidText, out waitPid))
-                {
-                    try
-                    {
-                        var process = Process.GetProcessById(waitPid);
-                        process.WaitForExit(30000);
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                var temp = Path.Combine(Path.GetTempPath(), "NativeSerialsUpdate-" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(temp);
-                var zipPath = Path.Combine(temp, "NativeSerialsUpdate.zip");
-                using (var client = CreateGitHubClient())
-                {
-                    client.DownloadFile(zipUrl, zipPath);
-                }
-                var extract = Path.Combine(temp, "extract");
-                Directory.CreateDirectory(extract);
-                ZipFile.ExtractToDirectory(zipPath, extract);
-                var stagedExe = Directory.GetFiles(extract, "NativeSerials.exe", SearchOption.AllDirectories).FirstOrDefault();
-                if (stagedExe == null) throw new FileNotFoundException("The update ZIP did not contain NativeSerials.exe.");
-                CopyDirectory(Path.GetDirectoryName(stagedExe), targetDir);
-                Process.Start(new ProcessStartInfo { FileName = exePath, UseShellExecute = true });
-                try { Directory.Delete(temp, true); } catch { }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Native Serials update failed:" + Environment.NewLine + Environment.NewLine + ex.Message, "Native Serials updater", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            return true;
+            return SignedUpdateAdapter.Run(args);
         }
 
         private static void ShowUpdateAvailableDialog(IWin32Window owner, GitHubReleaseInfo release, IEnumerable<GitHubReleaseInfo> releases, Version current, Version remote, Action exitApp)
         {
+            using (var dialog = CreateUpdateAvailableDialog(owner, release, releases, current, remote, exitApp))
+                dialog.ShowDialog(owner);
+        }
+
+        private static Form CreateUpdateAvailableDialog(IWin32Window owner, GitHubReleaseInfo release, IEnumerable<GitHubReleaseInfo> releases, Version current, Version remote, Action exitApp)
+        {
             var latest = release == null ? remote.ToString() : (release.TagName ?? remote.ToString());
             var releaseUrl = release == null || string.IsNullOrWhiteSpace(release.HtmlUrl) ? ProjectUrl + "/releases" : release.HtmlUrl;
             var zipAsset = FindPortableZipAsset(release);
+            Onj.SignedUpdater.UpdateOffer signedOffer = null;
+            try {
+                if (zipAsset != null) signedOffer = SignedUpdateAdapter.Offer(release.TagName,
+                    release.Assets.Select(a => new Onj.SignedUpdater.GitHubAsset { Name = a.Name, Url = a.BrowserDownloadUrl, Size = a.Size }).ToList(), current);
+            } catch (InvalidDataException) { }
             var releaseNotes = BuildUpdateReleaseNotes(releases, current, remote);
 
-            using (var dialog = new Form())
+            var dialog = new Form();
+            try
             {
                 dialog.Text = "Update available";
                 dialog.StartPosition = FormStartPosition.CenterParent;
                 dialog.Width = 720;
                 dialog.Height = 520;
+                dialog.MinimumSize = new Size(520, 360);
                 dialog.MinimizeBox = false;
                 dialog.MaximizeBox = false;
                 dialog.ShowIcon = false;
@@ -180,20 +152,20 @@ namespace NativeSerials
                 layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
                 layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 layout.Controls.Add(new Label { AutoSize = true, Dock = DockStyle.Top, Text = "Native Serials " + latest + " is available.", Padding = new Padding(0, 0, 0, 8) }, 0, 0);
-                layout.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = releaseNotes, AccessibleName = "Release notes" }, 0, 1);
+                layout.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = releaseNotes, AccessibleName = "Release notes", AccessibleDescription = "Changes included in the available update. Read or select the text with the arrow keys." }, 0, 1);
 
                 var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(0, 8, 0, 0) };
                 var laterButton = new Button { Text = "&Later", DialogResult = DialogResult.Cancel, AutoSize = true };
                 var releaseButton = new Button { Text = "Open &release page", AutoSize = true };
                 releaseButton.Click += delegate { OpenUrl(releaseUrl); };
-                if (zipAsset != null && !string.IsNullOrWhiteSpace(zipAsset.BrowserDownloadUrl))
+                if (signedOffer != null)
                 {
                     var installButton = new Button { Text = "&Download and install", AutoSize = true };
                     installButton.Click += delegate
                     {
                         dialog.DialogResult = DialogResult.OK;
                         dialog.Close();
-                        StartSelfUpdate(owner, zipAsset.BrowserDownloadUrl, exitApp);
+                        StartSelfUpdate(owner, release.TagName, exitApp);
                     };
                     buttons.Controls.Add(installButton);
                     dialog.AcceptButton = installButton;
@@ -203,33 +175,21 @@ namespace NativeSerials
                 dialog.CancelButton = laterButton;
                 layout.Controls.Add(buttons, 0, 2);
                 dialog.Controls.Add(layout);
-                dialog.ShowDialog(owner);
+                HelpDialog.Prepare(dialog);
+                return dialog;
             }
+            catch { dialog.Dispose(); throw; }
         }
 
-        private static void StartSelfUpdate(IWin32Window owner, string zipUrl, Action exitApp)
+        private static void StartSelfUpdate(IWin32Window owner, string tag, Action exitApp)
         {
-            if (MessageBox.Show(owner, "Native Serials will close, download the update, replace the files in this folder, and restart." + Environment.NewLine + Environment.NewLine + "Do you want to continue?", "Download and install", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            if (MessageBox.Show(owner, "Native Serials will close, verify the signed update, back up its program files, install and restart. Other files in this folder will be kept." + Environment.NewLine + Environment.NewLine + "Do you want to continue?", "Download and install", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
             {
                 return;
             }
             try
             {
-                var appDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var exePath = Application.ExecutablePath;
-                var updaterRoot = Path.Combine(Path.GetTempPath(), "NativeSerialsUpdater-" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(updaterRoot);
-                var updaterExe = Path.Combine(updaterRoot, "NativeSerials Updater.exe");
-                File.Copy(exePath, updaterExe, true);
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = updaterExe,
-                    Arguments = "--apply-update --update-url " + Quote(zipUrl) + " --update-target " + Quote(appDir) + " --update-exe " + Quote(exePath) + " --update-wait-pid " + Process.GetCurrentProcess().Id,
-                    WorkingDirectory = updaterRoot,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                });
-                if (exitApp != null) exitApp();
+                SignedUpdateAdapter.Start(tag, exitApp);
             }
             catch (Exception ex)
             {
@@ -256,7 +216,7 @@ namespace NativeSerials
         private static WebClient CreateGitHubClient()
         {
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
-            var client = new WebClient();
+            var client = new BoundedWebClient();
             client.Headers.Add("User-Agent", UserAgent);
             return client;
         }
@@ -313,12 +273,9 @@ namespace NativeSerials
         private static GitHubReleaseAsset FindPortableZipAsset(GitHubReleaseInfo release)
         {
             if (release == null || release.Assets == null) return null;
-            return release.Assets
-                .Where(a => a != null && !string.IsNullOrWhiteSpace(a.BrowserDownloadUrl) && !string.IsNullOrWhiteSpace(a.Name))
-                .Where(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(a => a.Name.IndexOf("nativeserialswindows", StringComparison.OrdinalIgnoreCase) >= 0 || a.Name.IndexOf("windows", StringComparison.OrdinalIgnoreCase) >= 0)
-                .ThenByDescending(a => a.Name.IndexOf("nativeserials", StringComparison.OrdinalIgnoreCase) >= 0)
-                .FirstOrDefault();
+            var name = "NativeSerialsWindows-" + release.TagName.TrimStart('v', 'V') + ".zip";
+            var choices = release.Assets.Where(a => a != null && a.Name == name).ToList();
+            return choices.Count == 1 ? choices[0] : null;
         }
 
         private static string FormatReleaseNotesForDialog(string markdown, string emptyText)
@@ -348,6 +305,9 @@ namespace NativeSerials
         {
             var map = value as Dictionary<string, object>;
             if (map == null) return null;
+            object flag;
+            if ((map.TryGetValue("draft", out flag) && flag is bool && (bool)flag) ||
+                (map.TryGetValue("prerelease", out flag) && flag is bool && (bool)flag)) return null;
             var release = new GitHubReleaseInfo { TagName = GetString(map, "tag_name"), HtmlUrl = GetString(map, "html_url"), Body = GetString(map, "body"), Assets = new List<GitHubReleaseAsset>() };
             object assetsValue;
             if (map.TryGetValue("assets", out assetsValue))
@@ -359,7 +319,9 @@ namespace NativeSerials
                     {
                         var assetMap = assetValue as Dictionary<string, object>;
                         if (assetMap == null) continue;
-                        release.Assets.Add(new GitHubReleaseAsset { Name = GetString(assetMap, "name"), BrowserDownloadUrl = GetString(assetMap, "browser_download_url") });
+                        long size;
+                        long.TryParse(GetString(assetMap, "size"), out size);
+                        release.Assets.Add(new GitHubReleaseAsset { Name = GetString(assetMap, "name"), BrowserDownloadUrl = GetString(assetMap, "browser_download_url"), Size = size });
                     }
                 }
             }
@@ -377,33 +339,6 @@ namespace NativeSerials
             try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
         }
 
-        private static string ArgValue(string[] args, string name)
-        {
-            for (var i = 0; i < args.Length - 1; i++)
-            {
-                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) return args[i + 1];
-            }
-            return string.Empty;
-        }
-
-        private static string Quote(string value)
-        {
-            return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
-        }
-
-        private static void CopyDirectory(string source, string target)
-        {
-            Directory.CreateDirectory(target);
-            foreach (var file in Directory.GetFiles(source))
-            {
-                File.Copy(file, Path.Combine(target, Path.GetFileName(file)), true);
-            }
-            foreach (var dir in Directory.GetDirectories(source))
-            {
-                CopyDirectory(dir, Path.Combine(target, Path.GetFileName(dir)));
-            }
-        }
-
         private sealed class GitHubReleaseInfo
         {
             public string TagName;
@@ -416,6 +351,19 @@ namespace NativeSerials
         {
             public string Name;
             public string BrowserDownloadUrl;
+            public long Size;
+        }
+
+        private sealed class BoundedWebClient : WebClient
+        {
+            protected override WebRequest GetWebRequest(Uri address)
+            {
+                var request = base.GetWebRequest(address);
+                request.Timeout = 20000;
+                var http = request as HttpWebRequest;
+                if (http != null) http.ReadWriteTimeout = 20000;
+                return request;
+            }
         }
     }
 }

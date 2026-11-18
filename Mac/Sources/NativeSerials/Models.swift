@@ -1,6 +1,17 @@
 import Foundation
 
-struct NativeProduct: Hashable {
+enum ProductSerialFilter: Int, CaseIterable {
+    case all, withSerials, withoutSerials
+    func includes(_ serial: String) -> Bool {
+        switch self {
+        case .all: return true
+        case .withSerials: return !serial.isEmpty
+        case .withoutSerials: return serial.isEmpty
+        }
+    }
+}
+
+struct NativeProduct: Hashable, Sendable {
     var key: String
     var name: String
     var upid: String
@@ -14,6 +25,7 @@ struct NativeProduct: Hashable {
     var hasRas3Token: Bool
     var isOwnedCandidate: Bool
     var sources: [String]
+    var registryName: String = ""
 }
 
 struct ScanSummary {

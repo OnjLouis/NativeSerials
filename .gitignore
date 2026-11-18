@@ -1,7 +1,5 @@
 Mac/.build/
-Mac/dist/
 Windows/portable/
-*.zip
 *.user
 *.log
 *.ini

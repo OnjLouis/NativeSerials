@@ -14,26 +14,49 @@
 </head>
 <body>
   <h1>Native Serials Manual</h1>
-  <p>Version 1.0</p>
+  <p>Version 1.1</p>
   <p>Project page: <a href="https://github.com/OnjLouis/NativeSerials">https://github.com/OnjLouis/NativeSerials</a></p>
+
+  <h2 id="version-history">Version History</h2>
+  <h3>1.1</h3>
+  <ul>
+    <li>Storage by Company: rank companies and products by size or product count, with cancellable scans, shared-folder totals and serial-free reports.</li>
+    <li>Broader storage coverage, including matching plug-ins, applications, support files and sample libraries.</li>
+    <li>Inventory and Storage tabs within one application window.</li>
+    <li>Three-way serial filtering: All products, With serials and Without serials.</li>
+    <li>Table context menus for copying rows and opening product folders, selecting the relevant item where possible.</li>
+    <li>Context-sensitive F1 help, clearer keyboard navigation, readable status fields and page-by-page table navigation on Mac.</li>
+    <li>Better company identification using additional local publisher metadata.</li>
+    <li>Verified updates with signed downloads and recovery if replacement fails.</li>
+  </ul>
+  <h3>1.0</h3>
+  <p>Initial public release with local product and serial scanning, masked serials, HTML export, diagnostics, accessible menus and update checking.</p>
 
   <h2 id="contents">Contents</h2>
   <ul>
     <li><a href="#purpose">Purpose</a></li>
+    <li><a href="#installation">Requirements and Installation</a></li>
     <li><a href="#important-limitations">Important Limitations</a></li>
     <li><a href="#privacy">Privacy</a></li>
     <li><a href="#main-window">Main Window</a></li>
     <li><a href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+    <li><a href="#storage">Storage by Company</a></li>
     <li><a href="#exporting">Exporting and Copying</a></li>
     <li><a href="#updates-and-support">Updates and Support</a></li>
     <li><a href="#files">Files</a></li>
     <li><a href="#version-history">Version History</a></li>
     <li><a href="#contact-and-donate">Contact and Donate</a></li>
+    <li><a href="#credits">Credits</a></li>
   </ul>
 
   <h2 id="purpose">Purpose</h2>
   <p>Native Serials is a local, read-only Native Instruments inventory reporter. It scans Native Access, RAS3 activation token, installed product, and Service Center metadata already present on the computer, then shows an accessible list of products and recovered serial numbers.</p>
   <p>The app is designed for screen reader users. The product table is a standard control, serials are hidden by default, and common actions are available from menus and keyboard shortcuts.</p>
+
+  <h2 id="installation">Requirements and Installation</h2>
+  <p><strong>Windows:</strong> 64-bit Windows with .NET Framework 4.8. Extract the Windows ZIP into a writable folder and open <code>NativeSerials.exe</code>. Keep the supplied DLL, manual and notices alongside it. No installer or administrator access is needed for normal use.</p>
+  <p><strong>Mac:</strong> macOS 13 or later, on Apple Silicon or Intel. Extract the Mac ZIP and move <code>Native Serials.app</code> to the main Applications folder. The app is Developer ID signed and notarized.</p>
+  <p>Native Instruments product metadata must already be present on this computer. Native Serials does not sign in to Native Access, register products or download missing libraries. Connect drives containing your libraries before measuring storage.</p>
 
   <h2 id="important-limitations">Important Limitations</h2>
   <p>Native Serials is neither endorsed nor supported by Native Instruments. Native Instruments, Native Access, Kontakt, Komplete Kontrol, Maschine, and related product names belong to Native Instruments and their respective owners.</p>
@@ -45,14 +68,14 @@
   <p>RAS3 JWT files can contain serial claims. Native Serials decodes those files locally and masks serials in the main table until <strong>Reveal serials</strong> is checked. Use export with care, because the HTML report can include revealed serial numbers when that option is enabled.</p>
 
   <h2 id="main-window">Main Window</h2>
-  <p>The main window contains a search box, a Rescan button, two privacy/filter checkboxes, a Save HTML Report button, and a product table.</p>
+  <p>The main window has two tabs: <strong>Inventory</strong> and <strong>Storage by Company</strong>. Inventory contains a search box, a Rescan button, the Reveal serials checkbox, the Products shown radio group, Save HTML Report and a product table. The app starts in Inventory with keyboard focus in the products table.</p>
   <table>
     <thead><tr><th>Control</th><th>What it does</th></tr></thead>
     <tbody>
       <tr><td>Search</td><td>Filters by product name, company, type, serial, path, UPID, or SNPID.</td></tr>
       <tr><td>Rescan</td><td>Runs the local scan again and refreshes the table.</td></tr>
       <tr><td>Reveal serials</td><td>Shows full serial numbers in the table, copied rows, and exported HTML.</td></tr>
-      <tr><td>Serials only</td><td>Shows only rows where a serial number was recovered.</td></tr>
+      <tr><td>Products shown</td><td>Choose All products, With serials or Without serials. Search narrows the selected group. This choice does not reveal serials or change their masking. A missing serial does not prove that a product is unlicensed.</td></tr>
       <tr><td>Save HTML Report</td><td>Writes the current filtered table to an HTML report.</td></tr>
     </tbody>
   </table>
@@ -61,47 +84,80 @@
   <table>
     <thead><tr><th>Action</th><th>Windows</th><th>Mac</th></tr></thead>
     <tbody>
-      <tr><td>Open this manual</td><td><code>F1</code></td><td><code>F1</code></td></tr>
+      <tr><td>Help for the focused control</td><td><code>F1</code></td><td><code>F1</code></td></tr>
+      <tr><td>Open full manual</td><td>Help, Open Manual</td><td>Help, Open Manual</td></tr>
+      <tr><td>Diagnostics</td><td><code>Alt+F1</code></td><td><code>Option+F1</code></td></tr>
       <tr><td>Check for updates</td><td><code>Shift+F1</code></td><td><code>Shift+F1</code></td></tr>
       <tr><td>Open project page</td><td><code>Ctrl+F1</code></td><td><code>Command+F1</code></td></tr>
-      <tr><td>Search products</td><td><code>Ctrl+F</code></td><td>Use the Search field</td></tr>
+      <tr><td>Search products</td><td><code>Ctrl+F</code></td><td><code>Command+F</code></td></tr>
+      <tr><td>Focus the products table</td><td><code>Alt+P</code></td><td>VoiceOver navigation or Tab</td></tr>
+      <tr><td>Focus company ranking (storage)</td><td><code>Alt+R</code></td><td>Company order pop-up</td></tr>
+      <tr><td>Focus product order (storage)</td><td><code>Alt+O</code></td><td>Product order pop-up</td></tr>
+      <tr><td>Focus companies table (storage)</td><td><code>Alt+C</code></td><td>VoiceOver navigation or Tab</td></tr>
+      <tr><td>Focus storage totals</td><td><code>Alt+T</code></td><td>VoiceOver navigation or Tab</td></tr>
+      <tr><td>Focus scan status</td><td><code>Alt+S</code></td><td>VoiceOver navigation or Tab</td></tr>
+      <tr><td>Open table copy menu</td><td>Application key or <code>Shift+F10</code></td><td>VoiceOver context menu or secondary click</td></tr>
+      <tr><td>Select Inventory tab</td><td><code>Ctrl+1</code></td><td><code>Command+1</code></td></tr>
+      <tr><td>Select Storage by Company tab</td><td><code>Ctrl+2</code></td><td><code>Command+2</code></td></tr>
+      <tr><td>Rescan the active view</td><td><code>Ctrl+R</code></td><td><code>Command+R</code></td></tr>
+      <tr><td>Open selected product folder (storage)</td><td><code>Ctrl+O</code></td><td><code>Command+O</code></td></tr>
+      <tr><td>Return from Storage to Inventory</td><td><code>Escape</code></td><td><code>Escape</code></td></tr>
+      <tr><td>Close the application window</td><td><code>Alt+F4</code></td><td><code>Command+W</code></td></tr>
       <tr><td>Copy selected rows</td><td><code>Ctrl+C</code></td><td><code>Command+C</code></td></tr>
-      <tr><td>Save HTML report</td><td><code>Ctrl+S</code> or <code>Alt+S</code></td><td><code>Command+S</code></td></tr>
-      <tr><td>Rescan</td><td><code>F5</code> or <code>Alt+R</code></td><td><code>Command+R</code></td></tr>
+      <tr><td>Save HTML report</td><td><code>Ctrl+S</code></td><td><code>Command+S</code></td></tr>
       <tr><td>Reveal serials</td><td><code>Alt+V</code></td><td>Reveal serials checkbox</td></tr>
-      <tr><td>Serials only</td><td><code>Alt+O</code></td><td>Serials only checkbox</td></tr>
+      <tr><td>Focus Products shown (inventory)</td><td><code>Alt+O</code>, then Left or Right</td><td>Products shown radio group</td></tr>
+      <tr><td>Move by a visible table page</td><td><code>Page Up</code> / <code>Page Down</code></td><td><code>Page Up</code> / <code>Page Down</code>, or <code>Fn+Up</code> / <code>Fn+Down</code> on compact keyboards</td></tr>
     </tbody>
   </table>
 
+  <h2 id="storage">Storage by Company</h2>
+  <p>Select the <strong>Storage by Company</strong> tab, choose <strong>View, Storage by Company</strong>, or press <code>Ctrl+2</code> on Windows or <code>Command+2</code> on Mac. This tab scans registered content and installation locations in the background. It also looks for matching product plug-ins, standalone applications and support data in standard installation locations, using product names and publisher information. Plug-ins and applications are not loaded or run during scanning.</p>
+  <p>The Companies table lists each company, its registered product count, measured total size, and how many products were fully measured. Rank companies by largest total, most products, or name. Select a company to populate the Products table, then choose largest first, smallest first, or product name. The filter searches product names and folder locations. The company total below the table always includes all that company's products, not just filtered rows.</p>
+  <p>Totals and completed scan figures appear on separate lines for easier reading. Both tabs belong to the same application window. Select Inventory with <code>Ctrl+1</code> on Windows or <code>Command+1</code> on Mac. Escape from Storage also returns to Inventory. Switching tabs keeps the last completed results and does not close the application.</p>
+  <p>Storage totals and Scan status are selectable, read-only text areas. Read them line by line with the arrow keys, or select text and use the normal copy shortcut. Tab and Shift+Tab leave these areas normally.</p>
+  <p>Tab and Shift+Tab move between controls and the tab selector. With focus on the selector, Left and Right select a tab without moving into its contents. Press Tab to enter that tab's controls.</p>
+  <p><strong>Scan</strong> refreshes sizes; <strong>Cancel</strong> stops the scan without replacing the last completed results. Scanning starts when Storage is first selected, not when the app opens. Results update at completion and do not continually rebuild the focused table. Disconnecting a drive produces unavailable or partial results; reconnect it and scan again.</p>
+  <p><strong>Unavailable</strong> means no known product location could be accessed; it is not a zero-byte installation. <strong>No location</strong> means no location was registered or matched. <strong>Partial</strong> means some known locations or entries could not be read, even if others were counted. <strong>Links skipped</strong> means nested symbolic links or Windows junctions were not followed. A link used as the registered root is resolved, but nested links are skipped to avoid loops and unrelated content. Entire filesystem roots, shared plug-in roots and other unsafe broad locations are not counted as product installations.</p>
+  <p>Sizes use MiB and GiB (binary units) and are logical file sizes, not allocated or reclaimable disk space. Shared and nested registered folders count once per company and once in the overall total. Individual product rows may overlap, and different company totals can overlap if they share content. Hard links count under each filename. A changing folder is a snapshot, not a locked backup. Known Fracture Sounds Blueprint and Native Instruments company-label variants are grouped together; original metadata is not changed.</p>
+  <p>The Location column lists all counted paths, including separate plug-in formats and applications where matched. Coverage includes registered locations and verified matches, not a whole-drive search or a complete uninstall estimate. Unregistered files in nonstandard locations, unmatched names, shared manufacturer data and files without enough publisher information may remain uncounted. <strong>Measured</strong> means the selected locations were readable, not that every file belonging to a product has been found. Missing company metadata appears as <strong>Unknown company</strong>; the app does not assign a company from a folder name. Counts are registered products, not proof of purchases or complete ownership.</p>
+  <p>When an NKS folder sits inside a library with a matching product name, its enclosing library is included. On Mac, discovery also checks known manufacturer folders on locally mounted volumes, UAD resource packages and Waves component metadata and sample-library folders. It does not search network volumes or unrelated folders for possible matches.</p>
+  <p><code>Ctrl+O</code> on Windows or <code>Command+O</code> on Mac opens the selected product's primary folder. For a plug-in file or application bundle, it reveals the item in its containing folder instead of launching it. Use the copy shortcut to copy selected table rows, including their counted locations. Use the save shortcut to export all scanned companies to HTML, with a named table for each company. Storage exports never include serials, even when inventory serials are revealed, but they do include product names and folder paths. Review a report before sharing it.</p>
+
   <h2 id="exporting">Exporting and Copying</h2>
-  <p>Use <strong>File, Copy Selected Row</strong> or the copy shortcut to copy selected products as tab-separated text. Multiple selected rows are copied together.</p>
-  <p>Use <strong>File, Save HTML Report</strong> to create a readable HTML report from the current filtered table. If <strong>Reveal serials</strong> is off, serials are masked in the report. If <strong>Reveal serials</strong> is on, full serials are included.</p>
+  <p>Select one product in either tab and open its context menu or the <strong>Actions</strong> menu to open detected content, support, application, VST2, VST3, AU or AAX folders. Every opening command includes the word Folder. Only matching locations available on this computer are offered. Multiple locations of one type appear in a submenu. Where a specific plug-in, file or application bundle is known, Finder or Explorer selects that item. Otherwise the folder opens normally. These commands never run a plug-in or application. Additional locations are discovered in the background; if a menu is opened immediately after a rescan, reopen it once discovery has finished.</p>
+  <p>Use the copy command or shortcut to copy selected products as tab-separated text. Each table also has a context menu with Copy Selected Rows. Multiple selected inventory rows are copied together. The inventory copy menu respects Reveal serials; storage copies never include serial numbers.</p>
+  <p>Use <strong>File, Save HTML Report</strong> on Windows or <strong>Native Serials, Save HTML Report</strong> on Mac to create a readable HTML report from the current filtered table. If <strong>Reveal serials</strong> is off, serials are masked in the report. If <strong>Reveal serials</strong> is on, full serials are included.</p>
 
   <h2 id="updates-and-support">Updates and Support</h2>
-  <p>Use <strong>Help, Check for Updates</strong> or <code>Shift+F1</code> to check GitHub releases. Use <strong>Help, Version History</strong> to review release notes. Use <strong>Help, Project Page on GitHub</strong> or <code>Ctrl+F1</code> on Windows and <code>Command+F1</code> on Mac to open the project page.</p>
+  <p>Use <strong>Help, Check for Updates</strong> on Windows, <strong>Native Serials, Check for Updates</strong> on Mac, or <code>Shift+F1</code> to check GitHub releases. Use <strong>Help, Version History</strong> to review release notes. Use <strong>Help, Project Page on GitHub</strong> or <code>Ctrl+F1</code> on Windows and <code>Command+F1</code> on Mac to open the project page.</p>
+  <p>Version 1.1 and later verify a signed file manifest and the download's SHA-256 before replacing program files. Mac updates also verify the app's Developer ID, notarization and both supported architectures. Missing or invalid signatures stop installation. The previous program is kept until replacement succeeds, and a failed replacement attempts to restore it. Product registrations and sample libraries are not changed. Leave the app in a writable location and allow it to close and reopen during installation.</p>
+  <p><strong>Upgrading from Mac version 1.0:</strong> quit Native Serials, download the Mac ZIP from the <a href="https://github.com/OnjLouis/NativeSerials/releases">releases page</a>, and replace the app in Applications manually. Do not use version 1.0's Install command for this upgrade: its older installer does not preserve the new app's signing identity. Subsequent updates can use the verified in-app installer.</p>
+  <p>If an update fails, its message explains whether the old program was restored. On Windows, recent updater diagnostics are in <code>%LOCALAPPDATA%\NativeSerials\Updates\LastUpdate.log</code>. On Mac, a failed installation records <code>~/Library/Application Support/Native Serials/LastUpdate.log</code>. These logs concern installation, not your product serials. Keep any recovery files identified in an error until the problem is resolved.</p>
   <p>Use <strong>Help, Contact</strong> for feedback and <strong>Help, Donate</strong> if you want to support continued development.</p>
+  <p><strong>Help, Diagnostics</strong> opens read-only diagnostic information for the active tab. Use <code>Alt+F1</code> on Windows or <code>Option+F1</code> on Mac. Diagnostics do not reveal serial numbers.</p>
+  <p>Press <code>F1</code> for help about the focused control. Focus moves directly to read-only text; use the arrow keys to read it. Detailed explanations appear here rather than being repeated whenever you focus a control. If no control-specific explanation is available, window help is shown. Each help dialog includes <strong>Open Manual</strong> for the full guide. Press <code>Escape</code> or activate <strong>Close</strong> to dismiss help and return to the previous control. The Help menu also has an independent <strong>Open Manual</strong> command.</p>
+  <p>In a report window, <strong>Copy All</strong> copies the complete report. To copy only an excerpt, select text and press <code>Ctrl+C</code> on Windows or <code>Command+C</code> on Mac.</p>
 
   <h2 id="files">Files</h2>
   <table>
     <thead><tr><th>File</th><th>Purpose</th></tr></thead>
     <tbody>
       <tr><td><code>NativeSerials.exe</code></td><td>The Windows app.</td></tr>
+      <tr><td><code>Onj.SignedUpdater.dll</code></td><td>The Windows signed-update library. Keep it beside the executable.</td></tr>
       <tr><td><code>Native Serials.app</code></td><td>The Mac app bundle.</td></tr>
-      <tr><td><code>Manual.html</code></td><td>This manual. Press <code>F1</code> in Native Serials to open it.</td></tr>
+      <tr><td><code>Manual.html</code></td><td>The full guide. Choose Help, Open Manual or use Open Manual in a help dialog.</td></tr>
+      <tr><td><code>ThirdPartyNotices.txt</code></td><td>License notices for reused update components; inside the Mac app's resources.</td></tr>
     </tbody>
   </table>
-
-  <h2 id="version-history">Version History</h2>
-  <h3>1.0</h3>
-  <ul>
-    <li>Initial public release.</li>
-    <li>Scans installed product JSON, Service Center XML metadata, and Native Access RAS3 tokens.</li>
-    <li>Masks serial numbers by default, with explicit reveal and export behavior.</li>
-    <li>Adds accessible menus, diagnostics, manual, update checking, project page, contact, and donation links.</li>
-  </ul>
 
   <h2 id="contact-and-donate">Contact and Donate</h2>
   <p>Questions and feedback can be sent through <strong>Help, Contact</strong> in the app or <a href="https://onj.me/contact">https://onj.me/contact</a>.</p>
   <p>Native Serials is free software. If you want to support Andre's work, use <strong>Help, Donate</strong> in the app or visit <a href="https://onj.me/donate">https://onj.me/donate</a>.</p>
+  <p>More software: <a href="https://onj.me/software">Andre Louis Software</a>.</p>
+
+  <h2 id="credits">Credits</h2>
+  <p>Native Serials is developed by Andre Louis with coding assistance from OpenAI Codex. Thank you to users who test accessibility and report missing product metadata.</p>
+  <p>The Windows updater uses <a href="https://github.com/OnjLouis/SignedUpdater">Onj Signed Updater</a>. Mac update verification and replacement are adapted from the MIT-licensed Phonon and ElevenLabs Music Generator update components. The original license notices accompany the app. Native Instruments product names and third-party library names belong to their respective owners.</p>
 </body>
 </html>

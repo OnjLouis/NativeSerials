@@ -1,233 +1,172 @@
 import AppKit
 import Foundation
 
+private final class UpdateRedirectPolicy: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(request.url.map(MacUpdatePolicy.allows) == true ? request : nil)
+    }
+}
+
 @MainActor
 final class UpdateService {
-    private struct GitHubRelease: Decodable {
+    struct GitHubRelease: Decodable {
         let tag_name: String
         let html_url: String
         let draft: Bool
         let prerelease: Bool
         let assets: [GitHubAsset]
     }
-
-    private struct GitHubAsset: Decodable {
+    struct GitHubAsset: Decodable {
         let name: String
         let browser_download_url: String
+        let size: Int64
     }
-
-    private struct UpdateCandidate {
+    struct UpdateCandidate: Sendable {
         let version: String
         let releaseURL: URL
         let downloadURL: URL
-        let assetName: String
+        let manifestURL: URL
+        let signatureURL: URL
+        let size: Int64
     }
 
     static let projectURL = URL(string: "https://github.com/OnjLouis/NativeSerials")!
-    private static let contactURL = URL(string: "https://onj.me/contact")!
-    private static let donateURL = URL(string: "https://onj.me/donate")!
-    private let releasesURL = URL(string: "https://api.github.com/repos/OnjLouis/NativeSerials/releases?per_page=20")!
+    private let session: URLSession
+    private var work: Task<Void, Never>?
+
+    init() {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 25
+        config.timeoutIntervalForResource = 180
+        config.httpAdditionalHeaders = ["User-Agent": "Native Serials updater"]
+        session = URLSession(configuration: config, delegate: UpdateRedirectPolicy(), delegateQueue: nil)
+        if Bundle.main.bundleIdentifier == MacUpdatePolicy.bundleID,
+           let result = UserDefaults.standard.string(forKey: "updateInstallResult") {
+            UserDefaults.standard.removeObject(forKey: "updateInstallResult")
+            DispatchQueue.main.async { [weak self] in self?.message("Native Serials Update", result) }
+        }
+    }
 
     func check(currentVersion: String, manual: Bool, installSilently: Bool) {
-        var request = URLRequest(url: releasesURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
-        request.setValue("Native Serials updater", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            Task { @MainActor in
-                guard let self else { return }
-                if let error {
-                    if manual { self.showError("Could Not Check for Updates", error.localizedDescription) }
+        guard work == nil else { return }
+        work = Task { [weak self] in
+            guard let self else { return }
+            defer { work = nil }
+            do {
+                let url = URL(string: "https://api.github.com/repos/OnjLouis/NativeSerials/releases")!
+                let data = try await boundedData(url, limit: 1_048_576)
+                let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+                guard let candidate = candidate(from: releases, currentVersion: currentVersion) else {
+                    if manual { message("Native Serials Is Up to Date", "Installed version: \(currentVersion).") }
                     return
                 }
-                guard let data,
-                      let releases = try? JSONDecoder().decode([GitHubRelease].self, from: data),
-                      let candidate = self.bestUpdate(in: releases, currentVersion: currentVersion)
-                else {
-                    if manual { self.showNoUpdate(currentVersion: currentVersion) }
-                    return
+                let manifestBytes = try await boundedData(candidate.manifestURL, limit: 131_072)
+                let signature = try await boundedData(candidate.signatureURL, limit: 256)
+                let manifest = try MacUpdatePolicy.verify(manifestBytes, signature: signature, expectedVersion: candidate.version)
+                guard manifest.size == candidate.size else { throw MacUpdateFailure.invalid("The package size differs from its signed manifest.") }
+                if !installSilently {
+                    let alert = NSAlert()
+                    alert.messageText = "Native Serials \(candidate.version) Is Available"
+                    alert.informativeText = "Install the signed update and relaunch Native Serials? The previous app is kept until replacement succeeds."
+                    alert.addButton(withTitle: "Install")
+                    alert.addButton(withTitle: "Version History")
+                    alert.addButton(withTitle: "Cancel")
+                    switch alert.runModal() {
+                    case .alertFirstButtonReturn: break
+                    case .alertSecondButtonReturn: NSWorkspace.shared.open(candidate.releaseURL); return
+                    default: return
+                    }
                 }
-
-                if installSilently {
-                    self.downloadAndInstall(candidate)
-                } else {
-                    self.promptForUpdate(candidate)
-                }
+                try await install(candidate, manifest: manifest)
+            } catch {
+                if manual || installSilently { message("Could Not Update Native Serials", error.localizedDescription) }
             }
-        }.resume()
-    }
-
-    func openVersionHistory() {
-        NSWorkspace.shared.open(Self.projectURL.appendingPathComponent("releases"))
-    }
-
-    func openProjectPage() {
-        NSWorkspace.shared.open(Self.projectURL)
-    }
-
-    func openContactPage() {
-        NSWorkspace.shared.open(Self.contactURL)
-    }
-
-    func openDonatePage() {
-        NSWorkspace.shared.open(Self.donateURL)
-    }
-
-    private func bestUpdate(in releases: [GitHubRelease], currentVersion: String) -> UpdateCandidate? {
-        releases
-            .filter { !$0.draft && !$0.prerelease }
-            .compactMap { release -> UpdateCandidate? in
-                let version = normalizedVersion(release.tag_name)
-                guard isVersion(version, newerThan: currentVersion),
-                      let asset = release.assets.first(where: { isMacAsset($0.name) }),
-                      let releaseURL = URL(string: release.html_url),
-                      let downloadURL = URL(string: asset.browser_download_url)
-                else { return nil }
-                return UpdateCandidate(version: version, releaseURL: releaseURL, downloadURL: downloadURL, assetName: asset.name)
-            }
-            .sorted { versionParts($0.version).lexicographicallyPrecedes(versionParts($1.version)) == false }
-            .first
-    }
-
-    private func promptForUpdate(_ candidate: UpdateCandidate) {
-        let alert = NSAlert()
-        alert.messageText = "Native Serials \(candidate.version) Is Available"
-        alert.informativeText = "Download and install \(candidate.assetName), then relaunch Native Serials?"
-        alert.addButton(withTitle: "Install")
-        alert.addButton(withTitle: "Version History")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            downloadAndInstall(candidate)
-        case .alertSecondButtonReturn:
-            NSWorkspace.shared.open(candidate.releaseURL)
-        default:
-            break
         }
     }
 
-    private func showNoUpdate(currentVersion: String) {
-        let alert = NSAlert()
-        alert.messageText = "Native Serials Is Up to Date"
-        alert.informativeText = "Installed version: \(currentVersion)"
-        alert.runModal()
-    }
-
-    private func downloadAndInstall(_ candidate: UpdateCandidate) {
-        var request = URLRequest(url: candidate.downloadURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 120)
-        request.setValue("Native Serials updater", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.downloadTask(with: request) { [weak self] location, _, error in
-            Task { @MainActor in
-                guard let self else { return }
-                if let error {
-                    self.showError("Could Not Download Update", error.localizedDescription)
-                    return
-                }
-                guard let location else {
-                    self.showError("Could Not Download Update", "The download did not produce a file.")
-                    return
-                }
-                do {
-                    try self.stageAndInstall(zipURL: location, version: candidate.version)
-                } catch {
-                    self.showError("Could Not Install Update", error.localizedDescription)
-                }
+    func candidate(from releases: [GitHubRelease], currentVersion: String) -> UpdateCandidate? {
+        releases.compactMap { release -> UpdateCandidate? in
+            guard !release.draft, !release.prerelease, release.tag_name.hasPrefix("v") else { return nil }
+            let version = String(release.tag_name.dropFirst())
+            guard MacUpdatePolicy.newer(version, than: currentVersion),
+                  release.html_url == Self.projectURL.absoluteString + "/releases/tag/v" + version else { return nil }
+            let name = "NativeSerialsMac-\(version).zip"
+            let base = Self.projectURL.absoluteString + "/releases/download/v" + version + "/"
+            func asset(_ suffix: String, limit: Int64) -> GitHubAsset? {
+                let matches = release.assets.filter { $0.name == name + suffix }
+                guard matches.count == 1, let value = matches.first, value.size > 0, value.size <= limit,
+                      value.browser_download_url == base + name + suffix else { return nil }
+                return value
             }
-        }.resume()
+            guard let archive = asset("", limit: MacUpdatePolicy.maximumPackageBytes),
+                  let manifest = asset(".json", limit: 131_072), let signature = asset(".json.sig", limit: 256) else { return nil }
+            return UpdateCandidate(version: version, releaseURL: URL(string: release.html_url)!,
+                                   downloadURL: URL(string: archive.browser_download_url)!,
+                                   manifestURL: URL(string: manifest.browser_download_url)!,
+                                   signatureURL: URL(string: signature.browser_download_url)!, size: archive.size)
+        }.max { MacUpdatePolicy.newer($1.version, than: $0.version) }
     }
 
-    private func stageAndInstall(zipURL: URL, version: String) throws {
-        let fileManager = FileManager.default
-        let staging = fileManager.temporaryDirectory.appendingPathComponent("NativeSerialsMacUpdate-\(UUID().uuidString)", isDirectory: true)
-        let extract = staging.appendingPathComponent("extract", isDirectory: true)
-        try fileManager.createDirectory(at: extract, withIntermediateDirectories: true)
-
-        let copiedZip = staging.appendingPathComponent("NativeSerialsMac-\(version).zip")
-        try fileManager.copyItem(at: zipURL, to: copiedZip)
-        try run("/usr/bin/ditto", arguments: ["-x", "-k", copiedZip.path, extract.path])
-
-        guard let stagedApp = findNativeSerialsApp(in: extract) else {
-            throw NSError(domain: "NativeSerialsUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: "The update ZIP did not contain Native Serials.app."])
+    private func boundedData(_ url: URL, limit: Int) async throws -> Data {
+        guard MacUpdatePolicy.allows(url) else { throw MacUpdateFailure.invalid("The update address is not trusted.") }
+        let (bytes, response) = try await session.bytes(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              http.url.map(MacUpdatePolicy.allows) == true, response.expectedContentLength <= Int64(limit) else {
+            bytes.task.cancel()
+            throw MacUpdateFailure.invalid("The update server returned an invalid or oversized response.")
         }
+        defer { bytes.task.cancel() }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < limit else { throw MacUpdateFailure.invalid("The update response is too large.") }
+            data.append(byte)
+        }
+        return data
+    }
 
-        let targetApp = Bundle.main.bundleURL.path.hasPrefix("/Applications/")
-            ? Bundle.main.bundleURL
-            : URL(fileURLWithPath: "/Applications/Native Serials.app")
-        let scriptURL = staging.appendingPathComponent("install-native-serials-update.zsh")
-        let script = """
-        #!/bin/zsh
-        set -euo pipefail
-        while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do
-          sleep 0.2
-        done
-        rm -rf \(shellQuote(targetApp.path))
-        /bin/cp -R \(shellQuote(stagedApp.path)) \(shellQuote(targetApp.path))
-        /usr/bin/codesign --force --sign - \(shellQuote(targetApp.path)) >/tmp/native-serials-update-codesign.log 2>&1 || true
-        /usr/bin/open \(shellQuote(targetApp.path))
-        rm -rf \(shellQuote(staging.path))
-        """
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+    private func install(_ candidate: UpdateCandidate, manifest: MacUpdateManifest) async throws {
+        let target = Bundle.main.bundleURL.standardizedFileURL
+        let manager = FileManager.default
+        guard target.path == "/Applications/Native Serials.app", target.resolvingSymlinksInPath() == target,
+              manager.isWritableFile(atPath: target.deletingLastPathComponent().path),
+              let executable = Bundle.main.executableURL else {
+            throw MacUpdateFailure.invalid("Move Native Serials to Applications before installing updates.")
+        }
+        let root = manager.temporaryDirectory.appendingPathComponent("NativeSerialsUpdate-\(UUID().uuidString)")
+        try manager.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        var handedOff = false
+        defer { if !handedOff { try? manager.removeItem(at: root) } }
+        let archive = root.appendingPathComponent(manifest.package)
+        let bytes = try await boundedData(candidate.downloadURL, limit: Int(manifest.size))
+        guard bytes.count == Int(manifest.size) else { throw MacUpdateFailure.invalid("The update download was incomplete.") }
+        try bytes.write(to: archive, options: .atomic)
+        let staged = try await Task.detached {
+            try MacUpdatePackage.extract(archive, to: root.appendingPathComponent("extract"), manifest: manifest)
+        }.value
+        let script = try MacUpdateInstallation(target: target, staged: staged, stagingRoot: root,
+                                               version: candidate.version, oldPID: ProcessInfo.processInfo.processIdentifier,
+                                               oldExecutable: executable.path).script()
+        let helper = root.appendingPathComponent("install.zsh")
+        try script.write(to: helper, atomically: true, encoding: .utf8)
+        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [scriptURL.path]
+        process.arguments = [helper.path]
         try process.run()
+        handedOff = true
         NSApp.terminate(nil)
     }
 
-    private func findNativeSerialsApp(in folder: URL) -> URL? {
-        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey]) else {
-            return nil
-        }
-        for case let url as URL in enumerator where url.lastPathComponent == "Native Serials.app" {
-            return url
-        }
-        return nil
-    }
+    func openVersionHistory() { NSWorkspace.shared.open(Self.projectURL.appendingPathComponent("releases")) }
+    func openProjectPage() { NSWorkspace.shared.open(Self.projectURL) }
+    func openContactPage() { NSWorkspace.shared.open(URL(string: "https://onj.me/contact")!) }
+    func openDonatePage() { NSWorkspace.shared.open(URL(string: "https://onj.me/donate")!) }
 
-    private func run(_ executable: String, arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "NativeSerialsUpdate", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "\(executable) failed with exit code \(process.terminationStatus)."])
-        }
-    }
-
-    private func showError(_ title: String, _ message: String) {
+    private func message(_ title: String, _ text: String) {
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = message
+        alert.informativeText = text
         alert.runModal()
-    }
-
-    private func isMacAsset(_ name: String) -> Bool {
-        let lower = name.lowercased()
-        return lower.hasSuffix(".zip") && lower.contains("nativeserialsmac")
-    }
-
-    private func normalizedVersion(_ value: String) -> String {
-        value.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
-    }
-
-    private func isVersion(_ candidate: String, newerThan current: String) -> Bool {
-        let left = versionParts(candidate)
-        let right = versionParts(current)
-        for index in 0..<max(left.count, right.count) {
-            let candidatePart = index < left.count ? left[index] : 0
-            let currentPart = index < right.count ? right[index] : 0
-            if candidatePart != currentPart {
-                return candidatePart > currentPart
-            }
-        }
-        return false
-    }
-
-    private func versionParts(_ version: String) -> [Int] {
-        version.split { !$0.isNumber }.map { Int($0) ?? 0 }
-    }
-
-    private func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

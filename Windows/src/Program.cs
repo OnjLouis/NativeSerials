@@ -7,6 +7,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Xml.Linq;
@@ -34,12 +36,19 @@ namespace NativeSerials
         private readonly ListView productsList;
         private readonly TextBox searchBox;
         private readonly CheckBox revealSerials;
-        private readonly CheckBox serialsOnly;
+        private readonly RadioButton allProducts, withSerials, withoutSerials;
         private readonly StatusStrip status;
         private readonly ToolStripStatusLabel statusText;
         private List<NativeProduct> products = new List<NativeProduct>();
         private List<NativeProduct> filteredProducts = new List<NativeProduct>();
         private ScanSummary summary;
+        private StorageForm storageWindow;
+        private readonly PageTabs pages = new PageTabs { Dock = DockStyle.Fill, AccessibleName = "Views", AccessibleDescription = "Use Left and Right to select a tab, then Tab to enter its controls. Control+1 opens Inventory; Control+2 opens Storage by Company." };
+        private readonly TabPage inventoryPage = new TabPage("Inventory");
+        private readonly TabPage storagePage = new TabPage("Storage by Company");
+        private bool StorageActive { get { return pages.SelectedTab == storagePage && storageWindow != null; } }
+        private Dictionary<NativeProduct, List<string>> folderLocations = new Dictionary<NativeProduct, List<string>>();
+        private CancellationTokenSource folderScan;
 
         public MainForm()
         {
@@ -47,6 +56,7 @@ namespace NativeSerials
             StartPosition = FormStartPosition.CenterScreen;
             Width = 1120;
             Height = 700;
+            MinimumSize = new Size(820, 720);
             KeyPreview = true;
 
             var menu = BuildMenu();
@@ -57,29 +67,33 @@ namespace NativeSerials
             {
                 Dock = DockStyle.Top,
                 FlowDirection = FlowDirection.LeftToRight,
-                Height = 42,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(0, 42),
                 Padding = new Padding(8, 8, 8, 0),
-                WrapContents = false
+                WrapContents = true
             };
 
             var searchLabel = new Label
             {
-                Text = "&Search:",
+                Text = "Search:",
                 AutoSize = true,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(0, 5, 0, 0)
             };
-            searchBox = new TextBox
+            searchBox = new ShortcutTextBox
             {
+                ShortcutText = "Ctrl+F",
                 Width = 360,
                 AccessibleName = "Search products",
                 AccessibleDescription = "Type a product name, company, serial, path, UPID, or SNPID to filter the list."
             };
             searchBox.TextChanged += delegate { ApplyFilter(); };
 
-            var rescanButton = new Button
+            var rescanButton = new ShortcutButton
             {
-                Text = "&Rescan",
+                Text = "Rescan", ShortcutText = "Ctrl+R",
+                AutoSize = true,
                 Width = 90,
                 AccessibleName = "Rescan",
                 AccessibleDescription = "Scan local Native Instruments metadata again."
@@ -95,18 +109,16 @@ namespace NativeSerials
             };
             revealSerials.CheckedChanged += delegate { PopulateList(); UpdateStatus(); };
 
-            serialsOnly = new CheckBox
-            {
-                Text = "Serials &only",
-                AutoSize = true,
-                AccessibleName = "Serials only",
-                AccessibleDescription = "When checked, the product list only shows rows with a recovered serial number."
-            };
-            serialsOnly.CheckedChanged += delegate { ApplyFilter(); };
+            allProducts = new RadioButton { Text = "All products", AutoSize = true, Checked = true, AccessibleName = "All products", AccessibleDescription = "Show every registered product matching Search. Use Left and Right to change the Products shown selection. Alt+O focuses this group." };
+            withSerials = new RadioButton { Text = "With serials", AutoSize = true, AccessibleName = "With serials", AccessibleDescription = "Show products with a recovered serial number, whether serials are revealed or hidden. Search still applies." };
+            withoutSerials = new RadioButton { Text = "Without serials", AutoSize = true, AccessibleName = "Without serials", AccessibleDescription = "Show products without a recovered serial number. Search still applies; a missing serial does not prove that a product is unlicensed." };
+            EventHandler filterChanged = delegate(object sender, EventArgs args) { if (((RadioButton)sender).Checked) ApplyFilter(); };
+            foreach (var choice in new[] { allProducts, withSerials, withoutSerials }) choice.CheckedChanged += filterChanged;
 
-            var exportButton = new Button
+            var exportButton = new ShortcutButton
             {
-                Text = "&Save HTML Report",
+                Text = "Save HTML Report", ShortcutText = "Ctrl+S",
+                AutoSize = true,
                 Width = 140,
                 AccessibleName = "Save HTML report",
                 AccessibleDescription = "Save the current filtered product list as an HTML report."
@@ -117,9 +129,13 @@ namespace NativeSerials
             topPanel.Controls.Add(searchBox);
             topPanel.Controls.Add(rescanButton);
             topPanel.Controls.Add(revealSerials);
-            topPanel.Controls.Add(serialsOnly);
             topPanel.Controls.Add(exportButton);
             Controls.Add(topPanel);
+            var serialGroup = new GroupBox { Text = "Products sh&own", AccessibleName = "Products shown", Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(8), TabStop = false };
+            var serialChoices = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, TabStop = false };
+            serialChoices.Controls.AddRange(new Control[] { allProducts, withSerials, withoutSerials });
+            serialGroup.Controls.Add(serialChoices);
+            Controls.Add(serialGroup);
 
             productsList = new ListView
             {
@@ -136,16 +152,44 @@ namespace NativeSerials
             productsList.Columns.Add("Version", 90);
             productsList.Columns.Add("Company", 140);
             productsList.Columns.Add("Type", 100);
-            productsList.Columns.Add("UPID", 260);
             productsList.Columns.Add("Path", 360);
+            productsList.Columns.Add("UPID", 260);
             productsList.DoubleClick += delegate { CopySelectedRows(); };
             productsList.KeyDown += ProductsListKeyDown;
+            MenuCommand.AddCopyMenu(productsList, delegate { CopySelectedRows(); });
+            FolderActions.AddToTable(productsList, SelectedFolders, OpenProductFolder);
             Controls.Add(productsList);
+            var productsLabel = new Label { Text = "&Products", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8, 4, 8, 4) };
+            Controls.Add(productsLabel);
+            topPanel.TabIndex = 0; serialGroup.TabIndex = 1; productsLabel.TabIndex = 2; productsList.TabIndex = 3;
 
             status = new StatusStrip();
-            statusText = new ToolStripStatusLabel("Ready");
+            statusText = new ToolStripStatusLabel("Ready") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
             status.Items.Add(statusText);
             Controls.Add(status);
+            Controls.SetChildIndex(productsList, 0);
+            Controls.SetChildIndex(productsLabel, 1);
+            Controls.SetChildIndex(serialGroup, 2);
+            Controls.SetChildIndex(topPanel, 3);
+            Controls.SetChildIndex(status, 4);
+            Controls.SetChildIndex(menu, 5);
+            foreach (Control control in new Control[] { productsList, productsLabel, serialGroup, topPanel, status }) {
+                Controls.Remove(control); inventoryPage.Controls.Add(control);
+            }
+            inventoryPage.Controls.SetChildIndex(productsList, 0);
+            inventoryPage.Controls.SetChildIndex(productsLabel, 1);
+            inventoryPage.Controls.SetChildIndex(serialGroup, 2);
+            inventoryPage.Controls.SetChildIndex(topPanel, 3);
+            inventoryPage.Controls.SetChildIndex(status, 4);
+            pages.TabPages.Add(inventoryPage); pages.TabPages.Add(storagePage);
+            pages.EnterPage = forward => StorageActive ? storageWindow.FocusEdge(forward) : (forward ? searchBox.Focus() : productsList.Focus());
+            Controls.Add(pages); Controls.SetChildIndex(pages, 0);
+            pages.SelectedIndexChanged += delegate {
+                if (pages.SelectedTab == storagePage) EnsureStorage();
+            };
+            HelpDialog.Prepare(this);
+            HelpDialog.Attach(this, OpenManual);
+            FormClosed += delegate { if (folderScan != null) folderScan.Cancel(); };
 
             Shown += delegate
             {
@@ -159,26 +203,36 @@ namespace NativeSerials
         {
             var menu = new MenuStrip();
             var file = new ToolStripMenuItem("&File");
-            file.DropDownItems.Add("&Rescan", null, delegate { Rescan(); });
-            var saveHtmlItem = new ToolStripMenuItem("&Save HTML Report...", null, delegate { ExportHtml(); });
-            saveHtmlItem.ShortcutKeys = Keys.Control | Keys.S;
+            file.DropDownItems.Add(MenuCommand.Create("&Rescan", delegate { Rescan(); }, Keys.Control | Keys.R));
+            var saveHtmlItem = MenuCommand.Create("&Save HTML Report...", delegate { ExportHtml(); }, Keys.Control | Keys.S);
             file.DropDownItems.Add(saveHtmlItem);
-            file.DropDownItems.Add("&Copy Selected Row", null, delegate { CopySelectedRows(); });
-            file.DropDownItems.Add("&Diagnostics...", null, delegate { ShowDiagnostics(); });
+            file.DropDownItems.Add(MenuCommand.Create("&Copy Selected Rows", delegate { CopySelectedRows(); }, Keys.Control | Keys.C));
+            file.DropDownItems.Add(MenuCommand.Create("Open Selected &Folder", delegate { var folders = SelectedFolders(); if (folders.Count > 0) OpenProductFolder(folders[0]); }, Keys.Control | Keys.O));
             file.DropDownItems.Add(new ToolStripSeparator());
-            file.DropDownItems.Add("E&xit", null, delegate { Close(); });
+            file.DropDownItems.Add(MenuCommand.Create("E&xit", delegate { Close(); }, Keys.None, "Alt+F4"));
             menu.Items.Add(file);
 
+            var views = new ToolStripMenuItem("V&iew");
+            views.DropDownItems.Add(MenuCommand.Create("&Inventory", delegate { ShowInventory(); }, Keys.Control | Keys.D1));
+            views.DropDownItems.Add(MenuCommand.Create("&Storage by Company...", delegate { ShowStorage(); }, Keys.Control | Keys.D2));
+            views.DropDownItems.Add(MenuCommand.Create("&Find Products", delegate { FocusSearch(); }, Keys.Control | Keys.F));
+            menu.Items.Add(views);
+            var actions = new ToolStripMenuItem("&Actions");
+            actions.DropDownOpening += delegate {
+                FolderActions.Clear(actions.DropDownItems);
+                FolderActions.Populate(actions.DropDownItems, SelectedFolders(), OpenProductFolder);
+            };
+            menu.Items.Add(actions);
+
             var help = new ToolStripMenuItem("&Help");
-            var manualItem = new ToolStripMenuItem("&Manual", null, delegate { OpenManual(); });
-            manualItem.ShortcutKeys = Keys.F1;
+            help.DropDownItems.Add(MenuCommand.Create("Context &Help", delegate { ShowContextHelp(); }, Keys.F1));
+            var manualItem = new ToolStripMenuItem("Open &Manual", null, delegate { OpenManual(); });
             help.DropDownItems.Add(manualItem);
-            var updatesItem = new ToolStripMenuItem("Check for &Updates...", null, delegate { UpdateService.CheckForUpdates(this, AppVersion(), delegate { Close(); }); });
-            updatesItem.ShortcutKeys = Keys.Shift | Keys.F1;
+            help.DropDownItems.Add(MenuCommand.Create("D&iagnostics...", delegate { ShowDiagnostics(); }, Keys.Alt | Keys.F1));
+            var updatesItem = MenuCommand.Create("Check for &Updates...", delegate { UpdateService.CheckForUpdates(this, AppVersion(), delegate { Close(); }); }, Keys.Shift | Keys.F1);
             help.DropDownItems.Add(updatesItem);
             help.DropDownItems.Add("&Version History...", null, delegate { UpdateService.ShowVersionHistory(this, AppVersion()); });
-            var projectItem = new ToolStripMenuItem("&Project Page on GitHub", null, delegate { UpdateService.OpenProjectPage(); });
-            projectItem.ShortcutKeys = Keys.Control | Keys.F1;
+            var projectItem = MenuCommand.Create("&Project Page on GitHub", delegate { UpdateService.OpenProjectPage(); }, Keys.Control | Keys.F1);
             help.DropDownItems.Add(projectItem);
             help.DropDownItems.Add(new ToolStripSeparator());
             help.DropDownItems.Add("&Contact", null, delegate { UpdateService.OpenContactPage(); });
@@ -191,9 +245,21 @@ namespace NativeSerials
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            if (StorageActive && keyData == Keys.Escape) { ShowInventory(); return true; }
+            if (keyData == (Keys.Alt | Keys.P)) { if (StorageActive) storageWindow.FocusProducts(); else productsList.Focus(); return true; }
+            if (!StorageActive && keyData == (Keys.Alt | Keys.O)) { (withSerials.Checked ? withSerials : withoutSerials.Checked ? withoutSerials : allProducts).Focus(); return true; }
+            if (keyData == (Keys.Alt | Keys.F1)) { ShowDiagnostics(); return true; }
+            if (keyData == (Keys.Control | Keys.D2)) { ShowStorage(); return true; }
+            if (keyData == (Keys.Control | Keys.D1)) { ShowInventory(); return true; }
+            if (keyData == (Keys.Control | Keys.Tab) || keyData == (Keys.Control | Keys.Shift | Keys.Tab)) {
+                if (pages.SelectedTab == inventoryPage) ShowStorage(); else ShowInventory(); return true;
+            }
+            if (keyData == (Keys.Control | Keys.R)) { Rescan(); return true; }
+            if (keyData == (Keys.Control | Keys.F)) { FocusSearch(); return true; }
+            if (keyData == (Keys.Control | Keys.C) && searchBox.Focused) { searchBox.Copy(); return true; }
             if (keyData == Keys.F1)
             {
-                OpenManual();
+                ShowContextHelp();
                 return true;
             }
             if (keyData == (Keys.Shift | Keys.F1))
@@ -214,6 +280,26 @@ namespace NativeSerials
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
+        private void ShowStorage()
+        {
+            pages.SelectedTab = storagePage;
+            EnsureStorage();
+            storageWindow.FocusProducts();
+        }
+
+        private void ShowInventory() { pages.SelectedTab = inventoryPage; productsList.Focus(); }
+        private void FocusSearch() { if (StorageActive) storageWindow.FocusSearch(); else { searchBox.Focus(); searchBox.SelectAll(); } }
+        private void EnsureStorage()
+        {
+            if (storageWindow == null || storageWindow.IsDisposed) {
+                storageWindow = new StorageForm { TopLevel = false, TabStop = false, FormBorderStyle = FormBorderStyle.None, Dock = DockStyle.Fill, ReturnToInventory = ShowInventory };
+                storageWindow.MinimumSize = Size.Empty;
+                storageWindow.MainMenuStrip.Visible = false;
+                storagePage.Controls.Add(storageWindow);
+                storageWindow.Show();
+            }
+        }
+
         private void ProductsListKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Control && e.KeyCode == Keys.C)
@@ -229,21 +315,18 @@ namespace NativeSerials
                 e.Handled = true;
                 return;
             }
-            if (e.KeyCode == Keys.F5)
-            {
-                Rescan();
-                e.Handled = true;
-            }
         }
 
         private void Rescan()
         {
+            if (StorageActive) { storageWindow.RefreshStorage(); return; }
             try
             {
                 var result = scanner.Scan();
                 products = result.Products;
                 summary = result.Summary;
                 ApplyFilter();
+                LoadFolderLocations(products.ToList());
             }
             catch (Exception ex)
             {
@@ -251,12 +334,45 @@ namespace NativeSerials
             }
         }
 
+        private async void LoadFolderLocations(List<NativeProduct> snapshot)
+        {
+            if (folderScan != null) folderScan.Cancel();
+            var current = new CancellationTokenSource();
+            folderScan = current;
+            folderLocations.Clear();
+            try {
+                var found = await Task.Run(() => FolderActions.Discover(snapshot, current.Token));
+                if (!IsDisposed && folderScan == current && !current.IsCancellationRequested) folderLocations = found;
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception) { /* Registered locations remain available if additional discovery fails. */ }
+            finally { if (folderScan == current) folderScan = null; current.Dispose(); }
+        }
+
+        private IList<FolderAction> SelectedFolders()
+        {
+            if (StorageActive) return storageWindow.SelectedFolders();
+            if (productsList.SelectedItems.Count != 1) return new List<FolderAction>();
+            var product = productsList.SelectedItems[0].Tag as NativeProduct;
+            if (product == null) return new List<FolderAction>();
+            List<string> paths;
+            return FolderActions.ForPaths(folderLocations.TryGetValue(product, out paths) ? paths : FolderActions.Registered(product), StorageDiscovery.ContentLocation(product));
+        }
+
+        private void OpenProductFolder(FolderAction action)
+        {
+            if (StorageActive) { storageWindow.OpenProductFolder(action); return; }
+            try { FolderActions.Open(action); }
+            catch (Exception ex) { statusText.Text = "Could not open folder: " + ex.Message; }
+        }
+
         private void ApplyFilter()
         {
             var query = (searchBox.Text ?? string.Empty).Trim().ToLowerInvariant();
             filteredProducts = products.Where(delegate(NativeProduct product)
             {
-                if (serialsOnly.Checked && string.IsNullOrEmpty(product.Serial)) return false;
+                bool hasSerial = !string.IsNullOrEmpty(product.Serial);
+                if ((withSerials.Checked && !hasSerial) || (withoutSerials.Checked && hasSerial)) return false;
                 if (query.Length == 0) return true;
                 var haystack = string.Join(" ", new[]
                 {
@@ -289,8 +405,8 @@ namespace NativeSerials
                     item.SubItems.Add(product.ContentVersion);
                     item.SubItems.Add(product.Company);
                     item.SubItems.Add(product.ProductType);
-                    item.SubItems.Add(product.Upid);
                     item.SubItems.Add(path);
+                    item.SubItems.Add(product.Upid);
                     item.Tag = product;
                     productsList.Items.Add(item);
                 }
@@ -328,6 +444,7 @@ namespace NativeSerials
 
         private void CopySelectedRows()
         {
+            if (StorageActive) { storageWindow.CopySelection(); return; }
             var lines = new List<string>();
             foreach (ListViewItem item in productsList.SelectedItems)
             {
@@ -344,6 +461,7 @@ namespace NativeSerials
 
         private void ExportHtml()
         {
+            if (StorageActive) { storageWindow.SaveReport(); return; }
             using (var dialog = new SaveFileDialog())
             {
                 dialog.Title = "Save Native Serials HTML Report";
@@ -357,11 +475,19 @@ namespace NativeSerials
 
         private void ShowDiagnostics()
         {
+            if (StorageActive) { storageWindow.Diagnostics(); return; }
             var text = summary == null ? "No scan has run." : summary.ToDiagnosticsText();
-            using (var viewer = new TextViewerForm("Native Serials Diagnostics", text, "Native Serials diagnostics", "Read-only scan diagnostics.", true))
+            using (var viewer = new TextViewerForm("Native Serials Diagnostics", text, "Native Serials diagnostics", "Review registration sources and product counts. Use Copy All to copy the complete report without serial numbers.", true, OpenManual))
             {
                 viewer.ShowDialog(this);
             }
+        }
+
+        private void ShowContextHelp()
+        {
+            HelpDialog.ShowContext(this,
+                "Inventory lists locally registered products. Serials are hidden until Reveal serials is checked. Products shown selects All products, With serials or Without serials; Search narrows that choice. Storage by Company opens folder sizes. Control+2 opens storage; Control+S saves the current inventory. Escape closes this help dialog. Open Manual opens the full guide.",
+                OpenManual);
         }
 
         private void OpenManual()
@@ -412,10 +538,10 @@ namespace NativeSerials
                 "Version: " + product.ContentVersion,
                 "Company: " + product.Company,
                 "Type: " + product.ProductType,
-                "UPID: " + product.Upid,
                 "SNPID: " + product.Snpid,
                 "Content: " + product.ContentDir,
-                "Install: " + product.InstallDir
+                "Install: " + product.InstallDir,
+                "UPID: " + product.Upid
             });
         }
 
@@ -427,10 +553,10 @@ namespace NativeSerials
             sb.AppendLine("<style>body{font-family:Segoe UI,Arial,sans-serif;line-height:1.4;margin:2rem}table{border-collapse:collapse;width:100%}th,td{border:1px solid #777;padding:.35rem;text-align:left;vertical-align:top}th{background:#eee}</style>");
             sb.AppendLine("</head><body><h1>Native Serials Report</h1>");
             sb.AppendLine("<p>Generated " + Escape(DateTime.Now.ToString("u", CultureInfo.InvariantCulture)) + ". Serials " + (includeSerials ? "included" : "masked") + ".</p>");
-            sb.AppendLine("<table><thead><tr><th>Product</th><th>Serial</th><th>Version</th><th>Company</th><th>Type</th><th>UPID</th><th>Path</th></tr></thead><tbody>");
+            sb.AppendLine("<table><thead><tr><th>Product</th><th>Serial</th><th>Version</th><th>Company</th><th>Type</th><th>Path</th><th>UPID</th></tr></thead><tbody>");
             foreach (var product in filteredProducts)
             {
-                sb.AppendLine("<tr><td>" + Escape(product.Name) + "</td><td>" + Escape(includeSerials ? product.Serial : DisplaySerial(product.Serial)) + "</td><td>" + Escape(product.ContentVersion) + "</td><td>" + Escape(product.Company) + "</td><td>" + Escape(product.ProductType) + "</td><td>" + Escape(product.Upid) + "</td><td>" + Escape(FirstNonEmpty(product.ContentDir, product.InstallDir)) + "</td></tr>");
+                sb.AppendLine("<tr><td>" + Escape(product.Name) + "</td><td>" + Escape(includeSerials ? product.Serial : DisplaySerial(product.Serial)) + "</td><td>" + Escape(product.ContentVersion) + "</td><td>" + Escape(product.Company) + "</td><td>" + Escape(product.ProductType) + "</td><td>" + Escape(FirstNonEmpty(product.ContentDir, product.InstallDir)) + "</td><td>" + Escape(product.Upid) + "</td></tr>");
             }
             sb.AppendLine("</tbody></table></body></html>");
             return sb.ToString();
@@ -467,7 +593,7 @@ namespace NativeSerials
             foreach (var product in service) MergeInto(byKey, product);
             foreach (var product in tokens.Products) MergeInto(byKey, product);
 
-            var products = DedupeByName(byKey.Values.Where(p => p.IsOwnedCandidate)).OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            var products = DedupeByName(EnrichCompanies(byKey.Values.Where(p => p.IsOwnedCandidate), service)).OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             return new ScanResult
             {
                 Products = products,
@@ -527,7 +653,7 @@ namespace NativeSerials
                         var upid = FirstElementValue(doc, "UPID");
                         var name = FirstElementValue(doc, "Name");
                         if (string.IsNullOrEmpty(name)) name = Path.GetFileNameWithoutExtension(file);
-                        products.Add(ServiceProduct(file, name, upid, FirstElementValue(doc, "SNPID"), FirstElementValue(doc, "Company"), FirstElementValue(doc, "Type"), FirstElementValue(doc, "Serial")));
+                        products.Add(ServiceProduct(file, name, upid, FirstElementValue(doc, "SNPID"), FirstElementValue(doc, "Company"), FirstElementValue(doc, "Type"), FirstElementValue(doc, "Serial"), FirstElementValue(doc, "RegKey")));
                         continue;
                     }
 
@@ -536,7 +662,7 @@ namespace NativeSerials
                         var upid = FirstChildElementValue(element, "UPID");
                         var name = FirstChildElementValue(element, "Name");
                         if (string.IsNullOrEmpty(name)) name = Path.GetFileNameWithoutExtension(file);
-                        products.Add(ServiceProduct(file, name, upid, FirstChildElementValue(element, "SNPID"), FirstChildElementValue(element, "Company"), FirstChildElementValue(element, "Type"), FirstChildElementValue(element, "Serial")));
+                        products.Add(ServiceProduct(file, name, upid, FirstChildElementValue(element, "SNPID"), FirstChildElementValue(element, "Company"), FirstChildElementValue(element, "Type"), FirstChildElementValue(element, "Serial"), FirstChildElementValue(element, "RegKey")));
                     }
                 }
                 catch
@@ -546,7 +672,7 @@ namespace NativeSerials
             return products;
         }
 
-        private static NativeProduct ServiceProduct(string source, string name, string upid, string snpid, string company, string productType, string serial)
+        private static NativeProduct ServiceProduct(string source, string name, string upid, string snpid, string company, string productType, string serial, string registryName)
         {
             return new NativeProduct
             {
@@ -557,8 +683,22 @@ namespace NativeSerials
                 Company = company,
                 ProductType = productType,
                 Serial = serial,
+                RegistryName = registryName,
                 Sources = new List<string> { source }
             };
+        }
+
+        internal List<NativeProduct> EnrichCompanies(IEnumerable<NativeProduct> candidates, IEnumerable<NativeProduct> metadata)
+        {
+            var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in metadata.Where(p => !string.IsNullOrWhiteSpace(p.Company)))
+                foreach (var alias in new[] { item.Name, item.RegistryName }.Where(n => !string.IsNullOrWhiteSpace(n)))
+                    byName[alias.Trim()] = item.Company;
+            var result = candidates.ToList();
+            foreach (var item in result)
+                if (string.IsNullOrWhiteSpace(item.Company) && byName.ContainsKey(item.Name.Trim()))
+                    item.Company = byName[item.Name.Trim()];
+            return result;
         }
 
         private TokenScan ScanRas3Tokens(string folder)
@@ -760,6 +900,7 @@ namespace NativeSerials
 
     internal sealed class NativeProduct
     {
+        public string RegistryName = string.Empty;
         public string Key = string.Empty;
         public string Name = string.Empty;
         public string Upid = string.Empty;
@@ -785,13 +926,15 @@ namespace NativeSerials
     internal sealed class TextViewerForm : Form
     {
         private readonly TextBox textBox;
+        internal bool IsContextHelp { get; set; }
 
-        public TextViewerForm(string title, string text, string accessibleName, string accessibleDescription, bool showCopyButton)
+        public TextViewerForm(string title, string text, string accessibleName, string accessibleDescription, bool showCopyButton, Action openManual = null)
         {
             Text = title;
             StartPosition = FormStartPosition.CenterParent;
             Width = 850;
             Height = 600;
+            MinimumSize = new Size(480, 320);
             KeyPreview = true;
 
             textBox = new TextBox
@@ -799,11 +942,12 @@ namespace NativeSerials
                 Dock = DockStyle.Fill,
                 Multiline = true,
                 ReadOnly = true,
-                ScrollBars = ScrollBars.Both,
-                WordWrap = false,
+                ScrollBars = ScrollBars.Vertical,
+                WordWrap = true,
                 Text = text ?? string.Empty,
                 AccessibleName = accessibleName,
-                AccessibleDescription = accessibleDescription
+                AccessibleDescription = accessibleDescription,
+                TabIndex = 0
             };
             Controls.Add(textBox);
 
@@ -811,25 +955,35 @@ namespace NativeSerials
             {
                 Dock = DockStyle.Bottom,
                 FlowDirection = FlowDirection.RightToLeft,
-                Height = 42
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Padding = new Padding(4)
             };
-            var close = new Button { Text = "Close", Width = 90, DialogResult = DialogResult.OK };
+            var close = new Button { Text = "&Close", AccessibleName = "Close", AutoSize = true, MinimumSize = new Size(90, 28), DialogResult = DialogResult.OK, TabIndex = 2 };
             buttons.Controls.Add(close);
+            if (openManual != null)
+            {
+                var manual = new Button { Text = "Open &Manual", AccessibleName = "Open Manual", AutoSize = true, MinimumSize = new Size(130, 28), TabIndex = 1 };
+                manual.Click += delegate { openManual(); };
+                buttons.Controls.Add(manual);
+            }
             if (showCopyButton)
             {
-                var copy = new Button { Text = "Copy", Width = 90 };
+                var copy = new Button { Text = "Cop&y All", AccessibleName = "Copy all", AutoSize = true, MinimumSize = new Size(90, 28), TabIndex = 0 };
                 copy.Click += delegate { Clipboard.SetText(textBox.Text ?? string.Empty, TextDataFormat.UnicodeText); };
                 buttons.Controls.Add(copy);
             }
             Controls.Add(buttons);
+            Controls.SetChildIndex(textBox, 0);
+            Controls.SetChildIndex(buttons, 1);
+            HelpDialog.Prepare(this);
 
             AcceptButton = close;
             CancelButton = close;
             Shown += delegate
             {
-                textBox.SelectionStart = 0;
-                textBox.SelectionLength = 0;
                 textBox.Focus();
+                textBox.Select(0, 0);
             };
         }
 
