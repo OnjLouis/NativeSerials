@@ -14,10 +14,12 @@
 </head>
 <body>
   <h1>Native Serials Manual</h1>
-  <p>Version 1.1</p>
+  <p>Version 1.1.1</p>
   <p>Project page: <a href="https://github.com/OnjLouis/NativeSerials">https://github.com/OnjLouis/NativeSerials</a></p>
 
   <h2 id="version-history">Version History</h2>
+  <h3>1.1.1</h3>
+  <p>Fixes Windows update-download connection failures. Inventory and storage features are unchanged from 1.1.</p>
   <h3>1.1</h3>
   <ul>
     <li>Storage by Company: rank companies and products by size or product count, with cancellable scans, shared-folder totals and serial-free reports.</li>
@@ -133,6 +135,7 @@
   <p>Use <strong>Help, Check for Updates</strong> on Windows, <strong>Native Serials, Check for Updates</strong> on Mac, or <code>Shift+F1</code> to check GitHub releases. Use <strong>Help, Version History</strong> to review release notes. Use <strong>Help, Project Page on GitHub</strong> or <code>Ctrl+F1</code> on Windows and <code>Command+F1</code> on Mac to open the project page.</p>
   <p>Version 1.1 and later verify a signed file manifest and the download's SHA-256 before replacing program files. Mac updates also verify the app's Developer ID, notarization and both supported architectures. Missing or invalid signatures stop installation. The previous program is kept until replacement succeeds, and a failed replacement attempts to restore it. Product registrations and sample libraries are not changed. Leave the app in a writable location and allow it to close and reopen during installation.</p>
   <p><strong>Upgrading from Mac version 1.0:</strong> quit Native Serials, download the Mac ZIP from the <a href="https://github.com/OnjLouis/NativeSerials/releases">releases page</a>, and replace the app in Applications manually. Do not use version 1.0's Install command for this upgrade: its older installer does not preserve the new app's signing identity. Subsequent updates can use the verified in-app installer.</p>
+  <p><strong>Upgrading from Windows version 1.1:</strong> quit the app and extract the latest Windows ZIP over your existing program files. Version 1.1 has a connection problem in its update installer; 1.1.1 fixes it. Other files in your program folder can stay in place.</p>
   <p>If an update fails, its message explains whether the old program was restored. On Windows, recent updater diagnostics are in <code>%LOCALAPPDATA%\NativeSerials\Updates\LastUpdate.log</code>. On Mac, a failed installation records <code>~/Library/Application Support/Native Serials/LastUpdate.log</code>. These logs concern installation, not your product serials. Keep any recovery files identified in an error until the problem is resolved.</p>
   <p>Use <strong>Help, Contact</strong> for feedback and <strong>Help, Donate</strong> if you want to support continued development.</p>
   <p><strong>Help, Diagnostics</strong> opens read-only diagnostic information for the active tab. Use <code>Alt+F1</code> on Windows or <code>Option+F1</code> on Mac. Diagnostics do not reveal serial numbers.</p>

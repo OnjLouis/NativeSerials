@@ -30,7 +30,8 @@ namespace NativeSerials
                 File.WriteAllText(Path.Combine(target, "personal.txt"), "preserve");
                 var manifest = File.ReadAllBytes(args[1]); var signature = File.ReadAllText(args[2]);
                 var policy = SignedUpdateAdapter.Policy();
-                var result = SignedUpdateAdapter.Install(args[0], manifest, signature, new Version(1, 0), new Version(1, 1),
+                var expected = typeof(UpdateTests).Assembly.GetName().Version;
+                var result = SignedUpdateAdapter.Install(args[0], manifest, signature, new Version(1, 0), expected,
                     target, Path.Combine(root, "scratch"), Path.Combine(root, "backup"), policy);
                 using (var zip = ZipFile.OpenRead(args[0])) foreach (var file in zip.Entries) {
                     using (var stream = file.Open()) using (var output = new MemoryStream()) {
@@ -40,13 +41,21 @@ namespace NativeSerials
                 }
                 Check(File.ReadAllText(Path.Combine(target, "personal.txt")) == "preserve", "Legacy migration changed unmanaged data");
                 var installed = FileVersionInfo.GetVersionInfo(Path.Combine(target, "NativeSerials.exe"));
-                Check(installed.FileVersion == "1.1.0.0", "Installed version differs");
+                Check(installed.FileVersion == expected.ToString(), "Installed version differs");
                 Check(!Directory.EnumerateFileSystemEntries(Path.Combine(root, "scratch")).Any(), "Final artifact scratch not cleaned");
                 Console.WriteLine("Final Windows package verified and installed over disposable legacy layout.");
             } finally { Directory.Delete(root, true); }
         }
         private static void Run()
         {
+            var previousProtocol = System.Net.ServicePointManager.SecurityProtocol;
+            try {
+                System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls;
+                var fetch = typeof(SignedUpdateAdapter).GetMethod("FetchOffer", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+                Reject(() => fetch.Invoke(null, new object[] { "invalid tag", new Version(1, 0) }));
+                Check(System.Net.ServicePointManager.SecurityProtocol == (System.Net.SecurityProtocolType)3072,
+                    "A fresh updater worker must enable TLS 1.2 before its first request");
+            } finally { System.Net.ServicePointManager.SecurityProtocol = previousProtocol; }
             var root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update-fixture-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             try {

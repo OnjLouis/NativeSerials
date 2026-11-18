@@ -99,13 +99,14 @@ struct UpdateTests {
             let archive = URL(fileURLWithPath: CommandLine.arguments[1])
             let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))
             let sig = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[3]))
-            let real = try MacUpdatePolicy.verify(data, signature: sig, expectedVersion: "1.1")
+            let version = try JSONDecoder().decode(MacUpdateManifest.self, from: data).version
+            let real = try MacUpdatePolicy.verify(data, signature: sig, expectedVersion: version)
             let extracted = try MacUpdatePackage.extract(archive, to: base.appendingPathComponent("verified"), manifest: real)
-            try transactions(base, app: extracted)
+            try transactions(base, app: extracted, version: version)
         }
     }
 
-    static func transactions(_ base: URL, app: URL) throws {
+    static func transactions(_ base: URL, app: URL, version: String) throws {
         let fm = FileManager.default
         let domain = "NativeSerials.UpdaterTests." + UUID().uuidString
         defer { UserDefaults.standard.removePersistentDomain(forName: domain) }
@@ -118,7 +119,7 @@ struct UpdateTests {
             try fm.copyItem(at: app, to: target)
             try fm.copyItem(at: app, to: staged)
             let before = try MacUpdatePolicy.hash(target.appendingPathComponent("Contents/MacOS/NativeSerials"))
-            let installer = MacUpdateInstallation(target: target, staged: staged, stagingRoot: root, version: "1.1",
+            let installer = MacUpdateInstallation(target: target, staged: staged, stagingRoot: root, version: version,
                 oldPID: ProcessInfo.processInfo.processIdentifier, oldExecutable: "/not-the-fixture", relaunch: false,
                 statusDomain: domain, diagnosticLog: trial.appendingPathComponent("failure.log"))
             var script = try installer.script()
@@ -129,7 +130,7 @@ struct UpdateTests {
             else { try MacUpdatePackage.run("/bin/zsh", [helper.path]) }
             let after = try MacUpdatePolicy.hash(target.appendingPathComponent("Contents/MacOS/NativeSerials"))
             try check(after == before, "Exact replacement/rollback contents")
-            try MacUpdatePackage.verifyApp(target, version: "1.1")
+            try MacUpdatePackage.verifyApp(target, version: version)
             try check(!fm.fileExists(atPath: root.path), "Transaction staging cleanup")
             let leftovers = try fm.contentsOfDirectory(atPath: trial.path)
             try check(!leftovers.contains(where: { $0.hasPrefix(".NativeSerials-") }), "No lock or previous-app leftovers")

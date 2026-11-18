@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.Serialization.Json;
@@ -19,6 +20,7 @@ namespace NativeSerials
     internal static class SignedUpdateAdapter
     {
         internal static readonly string[] ManagedFiles = { "NativeSerials.exe", "Onj.SignedUpdater.dll", "Manual.html", "ThirdPartyNotices.txt" };
+        private const SecurityProtocolType Tls12Protocol = (SecurityProtocolType)3072;
         private static readonly string WorkRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NativeSerials", "Updates");
 
         internal static Version NumericVersion(string text)
@@ -125,6 +127,8 @@ namespace NativeSerials
 
         private static UpdateOffer FetchOffer(string tag, Version current)
         {
+            // The standalone Framework worker does not inherit the main app's TLS settings.
+            ServicePointManager.SecurityProtocol = Tls12Protocol;
             if (!Regex.IsMatch(tag, "^v?[0-9]{1,9}(\\.[0-9]{1,9}){1,3}$")) throw new InvalidDataException("Invalid release tag.");
             using (var client = new HttpClient(new TrustedUpdateHosts()) { Timeout = TimeSpan.FromSeconds(25), MaxResponseContentBufferSize = 1048576 })
             using (var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/OnjLouis/NativeSerials/releases/tags/" + tag))

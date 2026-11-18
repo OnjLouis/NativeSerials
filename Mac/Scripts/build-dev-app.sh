@@ -37,9 +37,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.1</string>
+  <string>1.1.1</string>
   <key>CFBundleVersion</key>
-  <string>1.1</string>
+  <string>1.1.1</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
@@ -50,5 +50,5 @@ PLIST
 
 echo "Built $APP_DIR"
 cd "$DIST_DIR"
-/usr/bin/zip -qry "NativeSerialsMac-1.1.zip" "Native Serials.app"
-echo "Built $DIST_DIR/NativeSerialsMac-1.1.zip"
+/usr/bin/zip -qry "NativeSerialsMac-1.1.1.zip" "Native Serials.app"
+echo "Built $DIST_DIR/NativeSerialsMac-1.1.1.zip"

@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$version = '1.1'
+$version = '1.1.1'
 $PackageDirectory = [IO.Path]::GetFullPath($PackageDirectory)
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
 if ($PackageDirectory.TrimEnd('\').StartsWith($repoRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {

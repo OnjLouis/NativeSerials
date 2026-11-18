@@ -511,7 +511,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     }
 
     private func appVersion() -> String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.1"
     }
 
     @objc private func showInventory(_ sender: Any?) { tabs.selectTabViewItem(withIdentifier: "inventory"); window.makeFirstResponder(table) }
